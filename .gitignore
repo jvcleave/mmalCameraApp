@@ -1,0 +1,5 @@
+obj
+*.app
+*/bin/*
+!*/bin/data
+*._*
