@@ -5,7 +5,8 @@
 void testApp::setup(){
 	//ofSetLogLevel(OF_LOG_VERBOSE); set in main.cpp for core troubleshooting
 	
-	bool didLoadShader = shader.load("Empty_GLES.vert", "Empty_GLES.frag", "");
+	camera.setup();
+	/*bool didLoadShader = shader.load("Empty_GLES.vert", "Empty_GLES.frag", "");
 	
 	if (!didLoadShader) 
 	{
@@ -16,22 +17,22 @@ void testApp::setup(){
 	fbo.begin();
 		ofClear(0, 0, 0, 0);
 	fbo.end();
-	ofEnableAlphaBlending();
+	ofEnableAlphaBlending();*/
 }
 
 //--------------------------------------------------------------
 void testApp::update(){
-	fbo.begin();
+	/*fbo.begin();
 	ofClear(0, 0, 0, 0);
 		shader.begin();
 			ofRect(0, 0, ofGetWidth(), ofGetHeight());
 		shader.end();
-	fbo.end();
+	fbo.end();*/
 }
 
 //--------------------------------------------------------------
 void testApp::draw(){
-	fbo.draw(0, 0);
+	//fbo.draw(0, 0);
 
 }
 

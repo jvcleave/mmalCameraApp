@@ -1,6 +1,7 @@
 #pragma once
 
 #include "ofMain.h"
+#include "ofxRaspicam.h"
 
 
 class testApp : public ofBaseApp{
@@ -23,6 +24,8 @@ class testApp : public ofBaseApp{
 		
 		ofShader shader;
 		ofFbo fbo;
+	
+		ofxRaspicam camera;
 
 };
 
