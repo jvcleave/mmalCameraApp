@@ -463,7 +463,10 @@ void ofxRaspicam::create_camera_component()
 	{
 		ofLogVerbose() << "Camera doesn't have output ports";
 		//goto error;
+	}else {
+		ofLogVerbose() << "camera->output_num: " << camera->output_num;
 	}
+
 	
 	camera_preview_port = camera->output[MMAL_CAMERA_PREVIEW_PORT];
 	camera_video_port = camera->output[MMAL_CAMERA_VIDEO_PORT];
@@ -476,15 +479,20 @@ void ofxRaspicam::create_camera_component()
 	{
 		ofLogVerbose() << "Unable to enable control port : error" <<  status;
 		//goto error;
+	}else {
+		ofLogVerbose() << "mmal_port_enable : PASS " <<  status;
 	}
+
 	
 	MMAL_PARAMETER_CAMERA_CONFIG_T cam_config;
 	cam_config.max_stills_w = state.width;
 	cam_config.max_stills_h = state.height;
 	cam_config.stills_yuv422 = 0;
 	cam_config.one_shot_stills = 1;
-	cam_config.max_preview_video_w = state.preview_parameters.previewWindow.width;
-	cam_config.max_preview_video_h = state.preview_parameters.previewWindow.height;
+	ofLogVerbose() << "state.preview_parameters.previewWindow.width: " << state.preview_parameters.previewWindow.width;
+	ofLogVerbose() << "state.preview_parameters.previewWindow.height: " << state.preview_parameters.previewWindow.height;
+	cam_config.max_preview_video_w = ofGetWidth();
+	cam_config.max_preview_video_h = ofGetHeight();
 	cam_config.num_preview_video_frames = 3;
 	cam_config.stills_capture_circular_buffer_height = 0;
 	cam_config.fast_preview_resume = 0;
@@ -527,13 +535,13 @@ void ofxRaspicam::create_camera_component()
 	format->es->video.frame_rate.num = PREVIEW_FRAME_RATE_NUM;
 	format->es->video.frame_rate.den = PREVIEW_FRAME_RATE_DEN;
 	
-	status = mmal_port_format_commit(camera_preview_port);
+	//status = mmal_port_format_commit(camera_preview_port);
 	
-	if (status)
+	/*if (status)
 	{
 		ofLogVerbose() << "camera viewfinder format couldn't be set";
 		//goto error;
-	}
+	}*/
 	
 	// Set the same format on the video  port (which we dont use here)
 	mmal_format_full_copy(camera_video_port->format, format);
