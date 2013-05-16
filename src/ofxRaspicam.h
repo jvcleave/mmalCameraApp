@@ -12,6 +12,7 @@ class ofxRaspicam
 {
 public:
 	ofxRaspicam();
+	~ofxRaspicam();
 	void setup();
 	RASPISTILL_STATE state;
 	void create_camera_component();
@@ -19,7 +20,6 @@ public:
 	MMAL_PORT_T* camera_preview_port;
 	MMAL_PORT_T* camera_video_port;
 	MMAL_PORT_T* camera_still_port;
-	MMAL_PORT_T* preview_input_port;
 	MMAL_PORT_T* encoder_input_port;
 	MMAL_PORT_T* encoder_output_port;
 	MMAL_COMPONENT_T *camera;

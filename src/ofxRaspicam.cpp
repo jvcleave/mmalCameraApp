@@ -233,10 +233,8 @@ int mmal_status_to_int(MMAL_STATUS_T status)
 }
 ofxRaspicam::ofxRaspicam()
 {
-	camera_preview_port = NULL;
 	camera_video_port = NULL;
 	camera_still_port = NULL;
-	preview_input_port = NULL;
 	encoder_input_port = NULL;
 	encoder_output_port = NULL;
 	camera = NULL;
@@ -295,7 +293,6 @@ void ofxRaspicam::setup()
 	camera_preview_port = state.camera_component->output[MMAL_CAMERA_PREVIEW_PORT];
 	camera_video_port   = state.camera_component->output[MMAL_CAMERA_VIDEO_PORT];
 	camera_still_port   = state.camera_component->output[MMAL_CAMERA_CAPTURE_PORT];
-	preview_input_port  = state.preview_parameters.preview_component->input[0];
 	encoder_input_port  = state.encoder_component->input[0];
 	encoder_output_port = state.encoder_component->output[0];
 	
@@ -497,7 +494,15 @@ void ofxRaspicam::create_camera_component()
 	cam_config.stills_capture_circular_buffer_height = 0;
 	cam_config.fast_preview_resume = 0;
 	cam_config.use_stc_timestamp = MMAL_PARAM_TIMESTAMP_MODE_RESET_STC;
-	mmal_port_parameter_set(camera->control, &cam_config.hdr);
+	
+	/*status  = mmal_port_parameter_set(camera->control, &cam_config.hdr);
+	if (status)
+	{
+		ofLogVerbose() << "mmal_port_parameter_set FAIL" <<  status;
+		//goto error;
+	}else {
+		ofLogVerbose() << "mmal_port_parameter_set PASS" <<  status;
+	}*/
 	/*{
 		MMAL_PARAMETER_CAMERA_CONFIG_T cam_config =
 		{
@@ -526,36 +531,50 @@ void ofxRaspicam::create_camera_component()
 	format->encoding = MMAL_ENCODING_OPAQUE;
 	format->encoding_variant = MMAL_ENCODING_I420;
 	
-	format->es->video.width = state.preview_parameters.previewWindow.width;
-	format->es->video.height = state.preview_parameters.previewWindow.height;
+	format->es->video.width = ofGetWidth();
+	format->es->video.height = ofGetHeight();
 	format->es->video.crop.x = 0;
 	format->es->video.crop.y = 0;
-	format->es->video.crop.width = state.preview_parameters.previewWindow.width;
-	format->es->video.crop.height = state.preview_parameters.previewWindow.height;
+	format->es->video.crop.width = ofGetWidth();
+	format->es->video.crop.height = ofGetHeight();
 	format->es->video.frame_rate.num = PREVIEW_FRAME_RATE_NUM;
 	format->es->video.frame_rate.den = PREVIEW_FRAME_RATE_DEN;
 	
-	//status = mmal_port_format_commit(camera_preview_port);
-	
-	/*if (status)
-	{
-		ofLogVerbose() << "camera viewfinder format couldn't be set";
-		//goto error;
-	}*/
-	
-	// Set the same format on the video  port (which we dont use here)
-	mmal_format_full_copy(camera_video_port->format, format);
-	status = mmal_port_format_commit(camera_video_port);
+	status = mmal_port_format_commit(camera_preview_port);
 	
 	if (status)
 	{
-		ofLogVerbose() << "camera video format couldn't be set";
-		//goto error;
+		ofLogVerbose() << "camera viewfinder format set FAIL";
+	}else 
+	{
+		ofLogVerbose() << "camera viewfinder format set PASS";
+	}
+
+	
+	// Set the same format on the video  port (which we dont use here)
+	status = mmal_format_full_copy(camera_video_port->format, format);
+	if (status)
+	{
+		ofLogVerbose() << "mmal_format_full_copy FAIL";
+	}else 
+	{
+		ofLogVerbose() << "mmal_format_full_copy PASS";
+	}
+	
+	status = mmal_port_format_commit(camera_video_port);
+	if (status)
+	{
+		ofLogVerbose() << "camera video format set FAIL";
+	}else 
+	{
+		ofLogVerbose() << "camera video format PASS";
 	}
 	
 	// Ensure there are enough buffers to avoid dropping frames
 	if (camera_video_port->buffer_num < VIDEO_OUTPUT_BUFFERS_NUM)
+	{
 		camera_video_port->buffer_num = VIDEO_OUTPUT_BUFFERS_NUM;
+	}
 	
 	format = camera_still_port->format;
 	
@@ -580,16 +599,21 @@ void ofxRaspicam::create_camera_component()
 	
 	/* Ensure there are enough buffers to avoid dropping frames */
 	if (camera_still_port->buffer_num < VIDEO_OUTPUT_BUFFERS_NUM)
+	{
 		camera_still_port->buffer_num = VIDEO_OUTPUT_BUFFERS_NUM;
+	}
 	
 	/* Enable component */
 	status = mmal_component_enable(camera);
 	
 	if (status)
 	{
-		ofLogVerbose() << "camera component couldn't be enabled";
-		//goto error;
+		ofLogVerbose() << "camera component enable FAIL";
+	}else 
+	{
+		ofLogVerbose() << "camera component enable PASS";
 	}
+
 	
 	if (state.wantRAW)
 	{
@@ -607,18 +631,32 @@ void ofxRaspicam::create_camera_component()
 	
 	//return camera;
 	
-error:
+/*error:
 	
 	if (camera)
 	{
 		mmal_component_destroy(camera);
-	}
+	}*/
 	
 	//return NULL;
 }
-
+ofxRaspicam::~ofxRaspicam()
+{
+	ofLogVerbose() << "~ofxRaspicam";
+	if (camera)
+	{
+		mmal_component_destroy(camera);
+		ofLogVerbose() << "camera DESTROYED";
+	}
+	if (encoder)
+	{
+		mmal_component_destroy(encoder);
+		ofLogVerbose() << "encoder DESTROYED";
+	}
+}
 void ofxRaspicam::create_encoder_component()
 {
+	ofLogVerbose() << "create_encoder_component START";
 	MMAL_STATUS_T status;
 	MMAL_POOL_T *pool;
 	
@@ -626,14 +664,16 @@ void ofxRaspicam::create_encoder_component()
 	
 	if (status != MMAL_SUCCESS)
 	{
-		ofLogVerbose() << "Unable to create JPEG encoder component";
-		//goto error;
+		ofLogVerbose() << "create JPEG encoder component FAIL error: " << status;
+	}else 
+	{
+		ofLogVerbose() << "create JPEG encoder component PASS";
 	}
+
 	
 	if (!encoder->input_num || !encoder->output_num)
 	{
 		ofLogVerbose() << "JPEG encoder doesn't have input/output ports";
-		//goto error;
 	}
 	
 	encoder_input_port = encoder->input[0];
@@ -648,37 +688,56 @@ void ofxRaspicam::create_encoder_component()
 	encoder_output_port->buffer_size = encoder_output_port->buffer_size_recommended;
 	
 	if (encoder_output_port->buffer_size < encoder_output_port->buffer_size_min)
+	{
 		encoder_output_port->buffer_size = encoder_output_port->buffer_size_min;
+	}
 	
 	encoder_output_port->buffer_num = encoder_output_port->buffer_num_recommended;
 	
 	if (encoder_output_port->buffer_num < encoder_output_port->buffer_num_min)
+	{
 		encoder_output_port->buffer_num = encoder_output_port->buffer_num_min;
+	}
 	
 	// Commit the port changes to the output port
 	status = mmal_port_format_commit(encoder_output_port);
 	
 	if (status != MMAL_SUCCESS)
 	{
-		ofLogVerbose() << "Unable to set format on video encoder output port";
-		//goto error;
+		ofLogVerbose() << "set format on video encoder output port FAIL, error: " << status;
+	}else 
+	{
+		ofLogVerbose() << "set format on video encoder output port PASS";
+
 	}
+
 	
 	// Set the JPEG quality level
 	status = mmal_port_parameter_set_uint32(encoder_output_port, MMAL_PARAMETER_JPEG_Q_FACTOR, state.quality);
 	
 	if (status != MMAL_SUCCESS)
 	{
-		ofLogVerbose() << "Unable to set JPEG quality";
-		//goto error;
+		ofLogVerbose() << "Set JPEG quality FAIL, error: " << status;
+	}else 
+	{
+		ofLogVerbose() << "Set JPEG quality PASS";
+
 	}
-	MMAL_PARAMETER_THUMBNAIL_CONFIG_T param_thumb;
+
+	/*MMAL_PARAMETER_THUMBNAIL_CONFIG_T param_thumb;
 	param_thumb.enable = 1;
 	param_thumb.width = state.thumbnailConfig.width;
 	param_thumb.height = state.thumbnailConfig.height;
 	param_thumb.quality = state.thumbnailConfig.quality;
 	status = mmal_port_parameter_set(encoder->control, &param_thumb.hdr);
-
+	if (status)
+	{
+		ofLogVerbose() << "mmal_port_parameter_set FAIL, error: " << status;
+	}else 
+	{
+		ofLogVerbose() << "mmal_port_parameter_set PASS";
+		
+	}*/
 
 	
 	//  Enable component
@@ -686,9 +745,12 @@ void ofxRaspicam::create_encoder_component()
 	
 	if (status)
 	{
-		ofLogVerbose() << "Unable to enable video encoder component";
-		//goto error;
+		ofLogVerbose() << "Enable video encoder component FAIL, error: " << status;
+	}else 
+	{
+		ofLogVerbose() << "Enable video encoder component PASS";
 	}
+
 	
 	/* Create pool of buffer headers for the output port to consume */
 	pool = mmal_port_pool_create(encoder_output_port, encoder_output_port->buffer_num, encoder_output_port->buffer_size);
@@ -696,7 +758,11 @@ void ofxRaspicam::create_encoder_component()
 	if (!pool)
 	{
 		ofLogVerbose() << "Failed to create buffer header pool for encoder output port " << encoder_output_port->name;
+	}else 
+	{
+		ofLogVerbose() << "pool creation PASS";
 	}
+
 	
 	state.encoder_pool = pool;
 	state.encoder_component = encoder;
@@ -705,9 +771,9 @@ void ofxRaspicam::create_encoder_component()
 	
 	//return encoder;
 	
-error:
+/*error:
 	if (encoder)
-		mmal_component_destroy(encoder);
+		mmal_component_destroy(encoder);*/
 	
 	//return 0;
 	
