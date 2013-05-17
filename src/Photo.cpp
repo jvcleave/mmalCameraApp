@@ -12,6 +12,28 @@
 Photo::Photo()
 {
 
+	timeout = 5000; // 5s delay before take image
+	width = 2592;
+	height = 1944;
+	quality = 100;
+	wantRAW = 0;
+
+	filename = NULL;
+	verbose = 0;
+	thumbnailConfig.enable = 1;
+	thumbnailConfig.width = 64;
+	thumbnailConfig.height = 48;
+	thumbnailConfig.quality = 35;
+	demoMode = 0;
+	demoInterval = 250; // ms
+	camera_component = NULL;
+	encoder_component = NULL;
+	preview_connection = NULL;
+	encoder_connection = NULL;
+	encoder_pool = NULL;
+	encoding = MMAL_ENCODING_JPEG;
+	numExifTags = 0;
+	timelapse = 0;
 }
 
 /**

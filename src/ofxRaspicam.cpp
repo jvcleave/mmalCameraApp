@@ -154,7 +154,6 @@ int mmal_status_to_int(MMAL_STATUS_T status)
 }
 ofxRaspicam::ofxRaspicam()
 {
-	camera_video_port = NULL;
 	camera_still_port = NULL;
 	encoder_input_port = NULL;
 	encoder_output_port = NULL;
@@ -169,52 +168,10 @@ void ofxRaspicam::setup()
 
 	
 	bcm_host_init();
-	
-	state.timeout = 5000; // 5s delay before take image
-	state.width = 2592;
-	state.height = 1944;
-	state.quality = 85;
-	state.wantRAW = 0;
-	string fileName = ofGetTimestampString()+".jpg";
-	char *toChar = const_cast<char*> ( fileName.c_str() );
-	state.filename = toChar;
-	state.verbose = 0;
-	state.thumbnailConfig.enable = 1;
-	state.thumbnailConfig.width = 64;
-	state.thumbnailConfig.height = 48;
-	state.thumbnailConfig.quality = 35;
-	state.demoMode = 0;
-	state.demoInterval = 250; // ms
-	state.camera_component = NULL;
-	state.encoder_component = NULL;
-	state.preview_connection = NULL;
-	state.encoder_connection = NULL;
-	state.encoder_pool = NULL;
-	state.encoding = MMAL_ENCODING_JPEG;
-	state.numExifTags = 0;
-	state.timelapse = 0;
-	
-	state.camera_parameters.sharpness = 0;
-	state.camera_parameters.contrast = 0;
-	state.camera_parameters.brightness = 50;
-	state.camera_parameters.saturation = 0;
-	state.camera_parameters.ISO = 400;
-	state.camera_parameters.videoStabilisation = 0;
-	state.camera_parameters.exposureCompensation = 0;
-	state.camera_parameters.exposureMode = MMAL_PARAM_EXPOSUREMODE_AUTO;
-	state.camera_parameters.exposureMeterMode = MMAL_PARAM_EXPOSUREMETERINGMODE_AVERAGE;
-	state.camera_parameters.awbMode = MMAL_PARAM_AWBMODE_AUTO;
-	state.camera_parameters.imageEffect = MMAL_PARAM_IMAGEFX_NONE;
-	state.camera_parameters.colourEffects.enable = 0;
-	state.camera_parameters.colourEffects.u = 128;
-	state.camera_parameters.colourEffects.v = 128;
-	state.camera_parameters.rotation = 0;
-	state.camera_parameters.hflip = state.camera_parameters.vflip = 0;
+
 	create_camera_component();
 	create_encoder_component();
 	
-	camera_preview_port = state.camera_component->output[MMAL_CAMERA_PREVIEW_PORT];
-	camera_video_port   = state.camera_component->output[MMAL_CAMERA_VIDEO_PORT];
 	camera_still_port   = state.camera_component->output[MMAL_CAMERA_CAPTURE_PORT];
 	encoder_input_port  = state.encoder_component->input[0];
 	encoder_output_port = state.encoder_component->output[0];
@@ -262,107 +219,73 @@ void ofxRaspicam::setup()
 	}
 
 	
-	int num_iterations =  state.timelapse ? state.timeout / state.timelapse : 1;
 	int frame;
 	FILE *output_file = NULL;
+		
+	vcos_sleep(state.timeout);
 	
-	ofLogVerbose() << "num_iterations: " << num_iterations;
+	// Open the file
+	string fileName = ofGetTimestampString()+".jpg";
+	char *toChar = const_cast<char*> ( fileName.c_str() );
+	state.filename = toChar;
+
+	ofLogVerbose() << "Opening output file" << fileName;
 	
-	for (frame = 1;frame<=num_iterations; frame++)
+	output_file = fopen(state.filename, "wb");
+	
+	if (!output_file)
 	{
-		if (state.timelapse)
-			vcos_sleep(state.timelapse);
+		// Notify user, carry on but discarding encoded output buffers
+		ofLogVerbose() << "Error opening output file";
+	}
+	state.add_exif_tags();
+	
+	callback_data.file_handle = output_file;
+	
+	// We only capture if a filename was specified and it opened
+	if (output_file)
+	{
+		// Send all the buffers to the encoder output port
+		int num = mmal_queue_length(state.encoder_pool->queue);
+		int q;
+		
+		for (q=0;q<num;q++)
+		{
+			MMAL_BUFFER_HEADER_T *buffer = mmal_queue_get(state.encoder_pool->queue);
+			
+			if (!buffer)
+			{
+				ofLogVerbose() << "Unable to get a required buffer " << q << " from pool queue";
+			}
+			
+			if (mmal_port_send_buffer(encoder_output_port, buffer)!= MMAL_SUCCESS)
+			{
+				ofLogVerbose() << "Unable to send a buffer to encoder output port " << q;
+			}
+		}
+		
+		ofLogVerbose() << "Starting capture " << frame;
+		
+		if (mmal_port_parameter_set_boolean(camera_still_port, MMAL_PARAMETER_CAPTURE, 1) != MMAL_SUCCESS)
+		{
+			ofLogVerbose() << "Failed to start capture";
+		}
 		else
-			vcos_sleep(state.timeout);
-		
-		// Open the file
-		if (state.filename)
 		{
-			if (state.filename[0] == '-')
-			{
-				output_file = stdout;
-				
-				// Ensure we don't upset the output stream with diagnostics/info
-				state.verbose = 0;
-			}
-			else
-			{
-				char *use_filename = state.filename;
-				
-				if (state.timelapse)
-					asprintf(&use_filename, state.filename, frame);
-				
-				if (state.verbose)
-					ofLogVerbose() << "Opening output file" << use_filename;
-				
-				output_file = fopen(use_filename, "wb");
-				
-				if (!output_file)
-				{
-					// Notify user, carry on but discarding encoded output buffers
-					ofLogVerbose() << "Error opening output file";
-					//vcos_log_error("%s: Error opening output file: %s\nNo output file will be generated\n", __func__, use_filename);
-				}
-				
-				// asprintf used in timelaspe mode allocates its own memory which we need to free
-				if (state.timelapse)
-					free(use_filename);
-			}
-			
-			state.add_exif_tags();
-			
-			callback_data.file_handle = output_file;
+			// Wait for capture to complete
+			// For some reason using vcos_semaphore_wait_timeout sometimes returns immediately with bad parameter error
+			// even though it appears to be all correct, so reverting to untimed one until figure out why its erratic
+			vcos_semaphore_wait(&callback_data.complete_semaphore);
+			ofLogVerbose() << "Finished capture " << frame;
 		}
 		
-		// We only capture if a filename was specified and it opened
-		if (output_file)
-		{
-			// Send all the buffers to the encoder output port
-			int num = mmal_queue_length(state.encoder_pool->queue);
-			int q;
-			
-			for (q=0;q<num;q++)
-			{
-				MMAL_BUFFER_HEADER_T *buffer = mmal_queue_get(state.encoder_pool->queue);
-				
-				if (!buffer)
-				{
-					ofLogVerbose() << "Unable to get a required buffer " << q << " from pool queue";
-				}
-				
-				if (mmal_port_send_buffer(encoder_output_port, buffer)!= MMAL_SUCCESS)
-				{
-					ofLogVerbose() << "Unable to send a buffer to encoder output port " << q;
-				}
-			}
-			
-			ofLogVerbose() << "Starting capture " << frame;
-			
-			
-			if (mmal_port_parameter_set_boolean(camera_still_port, MMAL_PARAMETER_CAPTURE, 1) != MMAL_SUCCESS)
-			{
-				ofLogVerbose() << "Failed to start capture";
-			}
-			else
-			{
-				// Wait for capture to complete
-				// For some reason using vcos_semaphore_wait_timeout sometimes returns immediately with bad parameter error
-				// even though it appears to be all correct, so reverting to untimed one until figure out why its erratic
-				vcos_semaphore_wait(&callback_data.complete_semaphore);
-				ofLogVerbose() << "Finished capture " << frame;
-			}
-			
-			// Ensure we don't die if get callback with no open file
-			callback_data.file_handle = NULL;
-			
-			if (output_file != stdout)
-				fclose(output_file);
-		}
+		// Ensure we don't die if get callback with no open file
+		callback_data.file_handle = NULL;
 		
-	} // end for (frame)
+		fclose(output_file);
+	}
 	
 	vcos_semaphore_delete(&callback_data.complete_semaphore);
-
 }
 
 void ofxRaspicam::create_camera_component()
@@ -377,20 +300,18 @@ void ofxRaspicam::create_camera_component()
 	if (status != MMAL_SUCCESS)
 	{
 		ofLogVerbose() << "Failed to create camera component";
-		//goto error;
+		
 	}
 	
 	if (!camera->output_num)
 	{
 		ofLogVerbose() << "Camera doesn't have output ports";
-		//goto error;
+		
 	}else {
 		ofLogVerbose() << "camera->output_num: " << camera->output_num;
 	}
 
 	
-	camera_preview_port = camera->output[MMAL_CAMERA_PREVIEW_PORT];
-	camera_video_port = camera->output[MMAL_CAMERA_VIDEO_PORT];
 	camera_still_port = camera->output[MMAL_CAMERA_CAPTURE_PORT];
 	
 	// Enable the camera, and tell it its control callback function
@@ -398,10 +319,11 @@ void ofxRaspicam::create_camera_component()
 	
 	if (status)
 	{
-		ofLogVerbose() << "Unable to enable control port : error" <<  status;
-		//goto error;
-	}else {
-		ofLogVerbose() << "mmal_port_enable : PASS " <<  status;
+		ofLogVerbose() << "Enable control port FAIL: error" <<  status;
+	}
+	else 
+	{
+		ofLogVerbose() << "Enable control port : PASS " <<  status;
 	}
 
 	
@@ -422,55 +344,7 @@ void ofxRaspicam::create_camera_component()
 	
 	// Now set up the port formats
 	
-	format = camera_preview_port->format;
 	
-	format->encoding = MMAL_ENCODING_OPAQUE;
-	format->encoding_variant = MMAL_ENCODING_I420;
-	
-	format->es->video.width = ofGetWidth();
-	format->es->video.height = ofGetHeight();
-	format->es->video.crop.x = 0;
-	format->es->video.crop.y = 0;
-	format->es->video.crop.width = ofGetWidth();
-	format->es->video.crop.height = ofGetHeight();
-	format->es->video.frame_rate.num = PREVIEW_FRAME_RATE_NUM;
-	format->es->video.frame_rate.den = PREVIEW_FRAME_RATE_DEN;
-	
-	status = mmal_port_format_commit(camera_preview_port);
-	
-	if (status)
-	{
-		ofLogVerbose() << "camera viewfinder format set FAIL";
-	}else 
-	{
-		ofLogVerbose() << "camera viewfinder format set PASS";
-	}
-
-	
-	// Set the same format on the video  port (which we dont use here)
-	status = mmal_format_full_copy(camera_video_port->format, format);
-	if (status)
-	{
-		ofLogVerbose() << "mmal_format_full_copy FAIL";
-	}else 
-	{
-		ofLogVerbose() << "mmal_format_full_copy PASS";
-	}
-	
-	status = mmal_port_format_commit(camera_video_port);
-	if (status)
-	{
-		ofLogVerbose() << "camera video format set FAIL";
-	}else 
-	{
-		ofLogVerbose() << "camera video format PASS";
-	}
-	
-	// Ensure there are enough buffers to avoid dropping frames
-	if (camera_video_port->buffer_num < VIDEO_OUTPUT_BUFFERS_NUM)
-	{
-		camera_video_port->buffer_num = VIDEO_OUTPUT_BUFFERS_NUM;
-	}
 	
 	format = camera_still_port->format;
 	
@@ -490,13 +364,13 @@ void ofxRaspicam::create_camera_component()
 	if (status)
 	{
 		ofLogVerbose() << "camera still format couldn't be set";
-		//goto error;
+		
 	}
 	
 	/* Ensure there are enough buffers to avoid dropping frames */
-	if (camera_still_port->buffer_num < VIDEO_OUTPUT_BUFFERS_NUM)
+	if (camera_still_port->buffer_num < OUTPUT_BUFFERS_NUM)
 	{
-		camera_still_port->buffer_num = VIDEO_OUTPUT_BUFFERS_NUM;
+		camera_still_port->buffer_num = OUTPUT_BUFFERS_NUM;
 	}
 	
 	/* Enable component */
@@ -524,18 +398,8 @@ void ofxRaspicam::create_camera_component()
 	state.camera_component = camera;
 	
 	ofLogVerbose() << "Camera component done";
-	
-	//return camera;
-	
-/*error:
-	
-	if (camera)
-	{
-		mmal_component_destroy(camera);
-	}*/
-	
-	//return NULL;
 }
+
 ofxRaspicam::~ofxRaspicam()
 {
 	ofLogVerbose() << "~ofxRaspicam";
@@ -550,6 +414,7 @@ ofxRaspicam::~ofxRaspicam()
 		ofLogVerbose() << "encoder DESTROYED";
 	}
 }
+
 void ofxRaspicam::create_encoder_component()
 {
 	ofLogVerbose() << "create_encoder_component START";
@@ -664,13 +529,5 @@ void ofxRaspicam::create_encoder_component()
 	state.encoder_component = encoder;
 	
 	ofLogVerbose() << "Encoder component done";
-	
-	//return encoder;
-	
-/*error:
-	if (encoder)
-		mmal_component_destroy(encoder);*/
-	
-	//return 0;
-	
+
 }
