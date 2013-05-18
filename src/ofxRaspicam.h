@@ -5,7 +5,6 @@
 
 
 
-#define MAX_USER_EXIF_TAGS      32
 // Standard port setting for the camera component
 #define MMAL_CAMERA_CAPTURE_PORT 2
 
@@ -25,7 +24,7 @@ struct PORT_USERDATA
 {
 	FILE *file_handle;						// File handle to write buffer data to.
 	VCOS_SEMAPHORE_T complete_semaphore;	// semaphore which is posted when we reach end of frame (indicates end of capture or fault)
-	Photo *pstate;							// pointer to our state in case required in callback
+	Photo *photo;							// pointer to our state in case required in callback
 };
 
 class ofxRaspicam
@@ -34,7 +33,10 @@ public:
 	ofxRaspicam();
 	~ofxRaspicam();
 	void setup();
-	Photo state;
+	void takePhoto();
+	ofImage lastImage;
+private:
+	Photo photo;
 	void create_camera_component();
 	void create_encoder_component();
 	MMAL_PORT_T* camera_still_port;
@@ -44,4 +46,5 @@ public:
 	MMAL_COMPONENT_T* encoder;
 	
 	PORT_USERDATA callback_data;
+	
 };

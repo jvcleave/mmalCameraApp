@@ -24,7 +24,8 @@ static void camera_control_callback(MMAL_PORT_T *port, MMAL_BUFFER_HEADER_T *buf
 	}
 	else
 	{
-		//ofLogVerbose() << "Received unexpected camera control callback event, 0x%08x", buffer->cmd);
+		ofLog(OF_LOG_VERBOSE, "Received unexpected camera control callback event, 0x%08x", buffer->cmd);
+
 	}
 	
 	mmal_buffer_header_release(buffer);
@@ -100,7 +101,7 @@ static void encoder_buffer_callback(MMAL_PORT_T *port, MMAL_BUFFER_HEADER_T *buf
 		MMAL_STATUS_T status;
 		MMAL_BUFFER_HEADER_T *new_buffer;
 		
-		new_buffer = mmal_queue_get(pData->pstate->encoder_pool->queue);
+		new_buffer = mmal_queue_get(pData->photo->encoder_pool->queue);
 		
 		if (new_buffer)
 		{
@@ -116,42 +117,7 @@ static void encoder_buffer_callback(MMAL_PORT_T *port, MMAL_BUFFER_HEADER_T *buf
 }
 
 
-/**
- * Convert a MMAL status return value to a simple boolean of success
- * ALso displays a fault if code is not success
- *
- * @param status The error code to convert
- * @return 0 if status is sucess, 1 otherwise
- */
-int mmal_status_to_int(MMAL_STATUS_T status)
-{
-	if (status == MMAL_SUCCESS)
-		return 0;
-	else
-	{
-		switch (status)
-		{
-			case MMAL_ENOMEM :   ofLogVerbose() << "Out of memory"; break;
-			case MMAL_ENOSPC :   ofLogVerbose() << "Out of resources (other than memory)"; break;
-			case MMAL_EINVAL:    ofLogVerbose() << "Argument is invalid"; break;
-			case MMAL_ENOSYS :   ofLogVerbose() << "Function not implemented"; break;
-			case MMAL_ENOENT :   ofLogVerbose() << "No such file or directory"; break;
-			case MMAL_ENXIO :    ofLogVerbose() << "No such device or address"; break;
-			case MMAL_EIO :      ofLogVerbose() << "I/O error"; break;
-			case MMAL_ESPIPE :   ofLogVerbose() << "Illegal seek"; break;
-			case MMAL_ECORRUPT : ofLogVerbose() << "Data is corrupt \attention FIXME: not POSIX"; break;
-			case MMAL_ENOTREADY :ofLogVerbose() << "Component is not ready \attention FIXME: not POSIX"; break;
-			case MMAL_ECONFIG :  ofLogVerbose() << "Component is not configured \attention FIXME: not POSIX"; break;
-			case MMAL_EISCONN :  ofLogVerbose() << "Port is already connected "; break;
-			case MMAL_ENOTCONN : ofLogVerbose() << "Port is disconnected"; break;
-			case MMAL_EAGAIN :   ofLogVerbose() << "Resource temporarily unavailable. Try again later"; break;
-			case MMAL_EFAULT :   ofLogVerbose() << "Bad address"; break;
-			default :            ofLogVerbose() << "Unknown status error"; break;
-		}
-		
-		return 1;
-	}
-}
+
 ofxRaspicam::ofxRaspicam()
 {
 	camera_still_port = NULL;
@@ -159,22 +125,22 @@ ofxRaspicam::ofxRaspicam()
 	encoder_output_port = NULL;
 	camera = NULL;
 	encoder = NULL;
+	lastImage.allocate(photo.width, photo.height, OF_IMAGE_COLOR);
 }
 
 void ofxRaspicam::setup()
 {
 	
 	MMAL_STATUS_T status = MMAL_SUCCESS;
-
 	
 	bcm_host_init();
 
 	create_camera_component();
 	create_encoder_component();
 	
-	camera_still_port   = state.camera_component->output[MMAL_CAMERA_CAPTURE_PORT];
-	encoder_input_port  = state.encoder_component->input[0];
-	encoder_output_port = state.encoder_component->output[0];
+	camera_still_port   = photo.camera->output[MMAL_CAMERA_CAPTURE_PORT];
+	encoder_input_port  = photo.encoder_component->input[0];
+	encoder_output_port = photo.encoder_component->output[0];
 	
 	VCOS_STATUS_T vcos_status;
 	
@@ -182,7 +148,7 @@ void ofxRaspicam::setup()
 		
 	
 	// Now connect the camera to the encoder
-	status = connect_ports(camera_still_port, encoder_input_port, &state.encoder_connection);
+	status = connect_ports(camera_still_port, encoder_input_port, &photo.encoder_connection);
 	
 	if (status != MMAL_SUCCESS)
 	{
@@ -197,7 +163,7 @@ void ofxRaspicam::setup()
 	// Set up our userdata - this is passed though to the callback where we need the information.
 	// Null until we open our filename
 	callback_data.file_handle = NULL;
-	callback_data.pstate = &state;
+	callback_data.photo = &photo;
 	vcos_status = vcos_semaphore_create(&callback_data.complete_semaphore, "RaspiStill-sem", 0);
 	
 	vcos_assert(vcos_status == VCOS_SUCCESS);
@@ -219,26 +185,29 @@ void ofxRaspicam::setup()
 	}
 
 	
-	int frame;
+}
+
+void ofxRaspicam::takePhoto()
+{
+	ofFile myFile;
 	FILE *output_file = NULL;
-		
-	vcos_sleep(state.timeout);
+	
+	vcos_sleep(photo.timeout);
 	
 	// Open the file
-	string fileName = ofGetTimestampString()+".jpg";
+	string fileName = ofToDataPath("photos/"+ ofGetTimestampString()+".jpg", true);
 	char *toChar = const_cast<char*> ( fileName.c_str() );
-	state.filename = toChar;
-
+	photo.filename = toChar;
 	ofLogVerbose() << "Opening output file" << fileName;
 	
-	output_file = fopen(state.filename, "wb");
+	output_file = fopen(photo.filename, "wb");
 	
 	if (!output_file)
 	{
 		// Notify user, carry on but discarding encoded output buffers
 		ofLogVerbose() << "Error opening output file";
 	}
-	state.add_exif_tags();
+	photo.add_exif_tags();
 	
 	callback_data.file_handle = output_file;
 	
@@ -246,12 +215,12 @@ void ofxRaspicam::setup()
 	if (output_file)
 	{
 		// Send all the buffers to the encoder output port
-		int num = mmal_queue_length(state.encoder_pool->queue);
+		int num = mmal_queue_length(photo.encoder_pool->queue);
 		int q;
 		
 		for (q=0;q<num;q++)
 		{
-			MMAL_BUFFER_HEADER_T *buffer = mmal_queue_get(state.encoder_pool->queue);
+			MMAL_BUFFER_HEADER_T *buffer = mmal_queue_get(photo.encoder_pool->queue);
 			
 			if (!buffer)
 			{
@@ -264,7 +233,7 @@ void ofxRaspicam::setup()
 			}
 		}
 		
-		ofLogVerbose() << "Starting capture " << frame;
+		ofLogVerbose() << "Starting capture";
 		
 		if (mmal_port_parameter_set_boolean(camera_still_port, MMAL_PARAMETER_CAPTURE, 1) != MMAL_SUCCESS)
 		{
@@ -276,7 +245,8 @@ void ofxRaspicam::setup()
 			// For some reason using vcos_semaphore_wait_timeout sometimes returns immediately with bad parameter error
 			// even though it appears to be all correct, so reverting to untimed one until figure out why its erratic
 			vcos_semaphore_wait(&callback_data.complete_semaphore);
-			ofLogVerbose() << "Finished capture " << frame;
+			ofLogVerbose() << "Finished capture " << fileName;
+			lastImage.loadImage(callback_data.photo->filename);
 		}
 		
 		// Ensure we don't die if get callback with no open file
@@ -286,7 +256,9 @@ void ofxRaspicam::setup()
 	}
 	
 	vcos_semaphore_delete(&callback_data.complete_semaphore);
+	
 }
+
 
 void ofxRaspicam::create_camera_component()
 {
@@ -325,22 +297,8 @@ void ofxRaspicam::create_camera_component()
 	{
 		ofLogVerbose() << "Enable control port : PASS " <<  status;
 	}
-
 	
-	MMAL_PARAMETER_CAMERA_CONFIG_T cam_config;
-	cam_config.max_stills_w = state.width;
-	cam_config.max_stills_h = state.height;
-	cam_config.stills_yuv422 = 0;
-	cam_config.one_shot_stills = 1;
-
-	cam_config.max_preview_video_w = ofGetWidth();
-	cam_config.max_preview_video_h = ofGetHeight();
-	cam_config.num_preview_video_frames = 3;
-	cam_config.stills_capture_circular_buffer_height = 0;
-	cam_config.fast_preview_resume = 0;
-	cam_config.use_stc_timestamp = MMAL_PARAM_TIMESTAMP_MODE_RESET_STC;
-	
-	//raspicamcontrol_set_all_parameters(camera, &state.camera_parameters);
+	//raspicamcontrol_set_all_parameters(camera, &photo.camera_parameters);
 	
 	// Now set up the port formats
 	
@@ -350,12 +308,12 @@ void ofxRaspicam::create_camera_component()
 	
 	// Set our stills format on the stills (for encoder) port
 	format->encoding = MMAL_ENCODING_OPAQUE;
-	format->es->video.width = state.width;
-	format->es->video.height = state.height;
+	format->es->video.width = photo.width;
+	format->es->video.height = photo.height;
 	format->es->video.crop.x = 0;
 	format->es->video.crop.y = 0;
-	format->es->video.crop.width = state.width;
-	format->es->video.crop.height = state.height;
+	format->es->video.crop.width = photo.width;
+	format->es->video.crop.height = photo.height;
 	format->es->video.frame_rate.num = STILLS_FRAME_RATE_NUM;
 	format->es->video.frame_rate.den = STILLS_FRAME_RATE_DEN;
 	
@@ -385,7 +343,7 @@ void ofxRaspicam::create_camera_component()
 	}
 
 	
-	if (state.wantRAW)
+	if (photo.wantRAW)
 	{
 		if (mmal_port_parameter_set_boolean(camera_still_port, MMAL_PARAMETER_ENABLE_RAW_CAPTURE, 1) != MMAL_SUCCESS)
 		{
@@ -395,7 +353,7 @@ void ofxRaspicam::create_camera_component()
 		}
 	}
 	
-	state.camera_component = camera;
+	photo.setup(camera);
 	
 	ofLogVerbose() << "Camera component done";
 }
@@ -444,7 +402,7 @@ void ofxRaspicam::create_encoder_component()
 	mmal_format_copy(encoder_output_port->format, encoder_input_port->format);
 	
 	// Specify out output format
-	encoder_output_port->format->encoding = state.encoding;
+	encoder_output_port->format->encoding = photo.encoding;
 	
 	encoder_output_port->buffer_size = encoder_output_port->buffer_size_recommended;
 	
@@ -474,7 +432,7 @@ void ofxRaspicam::create_encoder_component()
 
 	
 	// Set the JPEG quality level
-	status = mmal_port_parameter_set_uint32(encoder_output_port, MMAL_PARAMETER_JPEG_Q_FACTOR, state.quality);
+	status = mmal_port_parameter_set_uint32(encoder_output_port, MMAL_PARAMETER_JPEG_Q_FACTOR, photo.quality);
 	
 	if (status != MMAL_SUCCESS)
 	{
@@ -485,22 +443,6 @@ void ofxRaspicam::create_encoder_component()
 
 	}
 
-	/*MMAL_PARAMETER_THUMBNAIL_CONFIG_T param_thumb;
-	param_thumb.enable = 1;
-	param_thumb.width = state.thumbnailConfig.width;
-	param_thumb.height = state.thumbnailConfig.height;
-	param_thumb.quality = state.thumbnailConfig.quality;
-	status = mmal_port_parameter_set(encoder->control, &param_thumb.hdr);
-	if (status)
-	{
-		ofLogVerbose() << "mmal_port_parameter_set FAIL, error: " << status;
-	}else 
-	{
-		ofLogVerbose() << "mmal_port_parameter_set PASS";
-		
-	}*/
-
-	
 	//  Enable component
 	status = mmal_component_enable(encoder);
 	
@@ -525,8 +467,8 @@ void ofxRaspicam::create_encoder_component()
 	}
 
 	
-	state.encoder_pool = pool;
-	state.encoder_component = encoder;
+	photo.encoder_pool = pool;
+	photo.encoder_component = encoder;
 	
 	ofLogVerbose() << "Encoder component done";
 

@@ -2,9 +2,10 @@
 
 #include "ofMain.h"
 #include "ofxRaspicam.h"
+#include "ConsoleListener.h"
 
 
-class testApp : public ofBaseApp{
+class testApp : public ofBaseApp, public SSHKeyListener{
 
 	public:
 
@@ -25,7 +26,9 @@ class testApp : public ofBaseApp{
 		ofShader shader;
 		ofFbo fbo;
 	
-		ofxRaspicam camera;
-
+		ofxRaspicam cameraController;
+	ConsoleListener consoleListener;
+	void onCharacterReceived(SSHKeyListenerEventData& e);
+	
 };
 

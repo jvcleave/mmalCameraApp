@@ -17,25 +17,20 @@ Photo::Photo()
 	height = 1944;
 	quality = 100;
 	wantRAW = 0;
-
 	filename = NULL;
-	verbose = 0;
-	thumbnailConfig.enable = 1;
-	thumbnailConfig.width = 64;
-	thumbnailConfig.height = 48;
-	thumbnailConfig.quality = 35;
-	demoMode = 0;
-	demoInterval = 250; // ms
-	camera_component = NULL;
+	camera = NULL;
 	encoder_component = NULL;
-	preview_connection = NULL;
 	encoder_connection = NULL;
 	encoder_pool = NULL;
 	encoding = MMAL_ENCODING_JPEG;
 	numExifTags = 0;
-	timelapse = 0;
 }
-
+void Photo::setup(MMAL_COMPONENT_T* camera_)
+{
+	camera = camera_;
+	cameraSettings.setup(camera);
+	
+}
 /**
  * Add an exif tag to the capture
  *
