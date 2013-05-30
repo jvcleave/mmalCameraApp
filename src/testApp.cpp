@@ -10,35 +10,17 @@ void testApp::setup(){
 	//ofSetLogLevel(OF_LOG_VERBOSE); set in main.cpp for core troubleshooting
 	consoleListener.setup(this);
 	consoleListener.startThread(false, false);
-	//cameraController.setup();
-	image.loadImage("/home/pi/openFrameworks/apps/CameraApps/cameraApp/bin/data/photos/2013-05-18-01-20-05-405.jpg");
-	/*bool didLoadShader = shader.load("Empty_GLES.vert", "Empty_GLES.frag", "");
-	
-	if (!didLoadShader) 
-	{
-		ofLogError() << "Load Shader FAIL";
-	}
-	
-	fbo.allocate(ofGetWidth(), ofGetHeight());
-	fbo.begin();
-		ofClear(0, 0, 0, 0);
-	fbo.end();
-	ofEnableAlphaBlending();*/
+	cameraController.setup();
+
 }
 
 //--------------------------------------------------------------
 void testApp::update(){
-	/*fbo.begin();
-	ofClear(0, 0, 0, 0);
-		shader.begin();
-			ofRect(0, 0, ofGetWidth(), ofGetHeight());
-		shader.end();
-	fbo.end();*/
+	
 }
 
 //--------------------------------------------------------------
 void testApp::draw(){
-	image.draw(0, 0, ofGetWidth(), ofGetHeight());
 	
 
 }
@@ -50,7 +32,7 @@ void testApp::keyPressed  (int key){
 	if (key == 'e') 
 	{
 		ofLogVerbose() << "e pressed!";
-		//cameraController.takePhoto();
+		cameraController.takePhoto();
 	}
 }
 
