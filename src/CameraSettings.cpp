@@ -58,7 +58,7 @@ CameraSettings::CameraSettings()
 	exposureMode = MMAL_PARAM_EXPOSUREMODE_AUTO;
 	exposureMeterMode = MMAL_PARAM_EXPOSUREMETERINGMODE_AVERAGE;
 	awbMode = MMAL_PARAM_AWBMODE_AUTO;
-	imageEffect = MMAL_PARAM_IMAGEFX_HATCH;
+	imageEffect = MMAL_PARAM_IMAGEFX_NONE;
 	colourEffects.enable = 0;
 	colourEffects.u = 128;
 	colourEffects.v = 128;
