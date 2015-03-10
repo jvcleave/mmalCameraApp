@@ -116,7 +116,7 @@ PROJECT_LDFLAGS=-lmmal -lmmal_core -lmmal_util
 #
 #   Note: Leave a leading space when adding list items with the += operator
 ################################################################################
-PROJECT_CFLAGS = -I$(PROJECT_ROOT)/addons/include
+PROJECT_CFLAGS = -I/opt/vc/include/interface
 
 ################################################################################
 # PROJECT OPTIMIZATION CFLAGS
